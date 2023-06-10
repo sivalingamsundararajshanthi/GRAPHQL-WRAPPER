@@ -3,38 +3,41 @@ import https from "https";
 import express from "express";
 import "dotenv/config";
 import cors from "cors";
+import OktaJwtVerifier from "@okta/jwt-verifier";
+
+const oktaJwtVerifier = new OktaJwtVerifier({
+  issuer: process.env.OKTAURL,
+});
+const audience = process.env.AUDIENCE;
 
 const app = express();
 
-// app.use(function (req, res, next) {
-//   // Website you wish to allow to connect
-//   res.setHeader("Access-Control-Allow-Origin", "http://localhost:5173");
+// app.use(cors());
 
-//   // Request methods you wish to allow
-//   res.setHeader(
-//     "Access-Control-Allow-Methods",
-//     "GET, POST, OPTIONS, PUT, PATCH, DELETE"
-//   );
+app.use(cors()).listen(3000, () => console.log("API server running in 3000"));
 
-//   // Request headers you wish to allow
-//   res.setHeader(
-//     "Access-Control-Allow-Headers",
-//     "X-Requested-With,content-type"
-//   );
+const authenticationRequired = async (req, res, next) => {
+  const authHeader = req.headers.authorization || "";
+  const match = authHeader.match(/Bearer (.+)/);
+  if (!match) {
+    return res.status(401).send();
+  }
 
-//   // Set to true if you need the website to include cookies in the requests sent
-//   // to the API (e.g. in case you use sessions)
-//   res.setHeader("Access-Control-Allow-Credentials", true);
+  try {
+    const accessToken = match[1];
+    if (!accessToken) {
+      return res.status(401, "Not authorized").send();
+    }
+    req.jwt = await oktaJwtVerifier.verifyAccessToken(accessToken, audience);
+    next();
+  } catch (err) {
+    return res.status(401).send(err.message);
+  }
+};
 
-//   // Pass to next layer of middleware
-//   next();
-// });
+// app.all("*", authenticationRequired); // Require authentication for all routes
 
-app.use(cors());
-
-app.listen(3000, () => console.log("API server running in 3000"));
-
-app.get("/getProducts", async function (req, res) {
+app.get("/getProducts", authenticationRequired, async function (req, res) {
   const query = `{
     getDemoProduct(id: 1230) {
       ModelName,
@@ -61,7 +64,7 @@ app.get("/getProducts", async function (req, res) {
   return res.json(response);
 });
 
-app.get("/getAllProducts", async function (req, res) {
+app.get("/getAllProducts", authenticationRequired, async function (req, res) {
   const query = `{
     getDemoProductListing {
       edges {
